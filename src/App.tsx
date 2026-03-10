@@ -85,7 +85,6 @@ export default function App() {
   }, [allocations]);
 
   const remainingCredits = identityScore - totalCreditsUsed;
-  const isFullyAllocated = totalCreditsUsed === identityScore;
 
   const handleIdentitySubmit = (e: any) => {
     e.preventDefault();
@@ -95,7 +94,7 @@ export default function App() {
     const referrals = Number(identityInputs.referrals) || 0;
     
     const score = (hosted * 3) + 
-                  (attended * 1) + 
+                  (attended * 0.5) + 
                   (burns * 1.25) + 
                   (referrals * 5);
     setIdentityScore(Math.floor(score));
@@ -142,7 +141,7 @@ export default function App() {
           <div className="w-8 h-8 bg-[#5A5A40] rounded-lg flex items-center justify-center text-white">
             <Vote size={20} />
           </div>
-          <h1 className="text-xl font-serif italic font-semibold tracking-tight">Quadratic.Vote</h1>
+          <h1 className="text-xl font-serif italic font-semibold tracking-tight">Quadratic Simulation vNS</h1>
         </div>
         <button 
           onClick={() => setView('qr')}
@@ -165,7 +164,7 @@ export default function App() {
             >
               <div className="space-y-2 text-center">
                 <h2 className="text-4xl font-serif font-bold tracking-tight">Proof of Work - March Score</h2>
-                <p className="text-[#141414]/60">Calculate your identity points based on your contributions this month.</p>
+                <p className="text-[#141414]/60">Calculate your identity points based on your contributions this month. Your total credits will be converted to quadratic votes.</p>
               </div>
 
               <form onSubmit={handleIdentitySubmit} className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-6">
@@ -238,11 +237,12 @@ export default function App() {
                     <p className="text-2xl font-mono font-bold text-[#5A5A40]">
                       {Math.floor(
                         (Number(identityInputs.hosted) || 0) * 3 + 
-                        (Number(identityInputs.attended) || 0) * 1 + 
+                        (Number(identityInputs.attended) || 0) * 0.5 + 
                         (Number(identityInputs.burns) || 0) * 1.25 + 
                         (Number(identityInputs.referrals) || 0) * 5
                       )}
                     </p>
+                    <p className="text-[10px] text-[#141414]/40 italic">Your total credits will be converted to quadratic votes.</p>
                   </div>
                   <button
                     type="submit"
@@ -259,7 +259,7 @@ export default function App() {
                 <div className="space-y-1">
                   <p className="text-xs font-bold uppercase tracking-wider text-[#5A5A40]">Point Calculation</p>
                   <p className="text-sm text-[#5A5A40]/70 leading-relaxed">
-                    Hosted (3x) + Attended (1x) + Burns (1.25x) + Referrals (5x). Your total points will be used as voting credits.
+                    Hosted (3x) + Attended (0.5x) + Burns (1.25x) + Referrals (5x). Your total points will be used as voting credits.
                   </p>
                 </div>
               </div>
@@ -364,7 +364,7 @@ export default function App() {
                   <Info size={20} className="text-[#5A5A40] shrink-0 mt-0.5" />
                   <p className="text-sm text-[#5A5A40]/80 leading-relaxed">
                     Quadratic voting allows you to express the intensity of your preference. 
-                    The cost of votes increases quadratically: 1 vote = 1 credit, 2 votes = 4 credits, 3 votes = 9 credits.
+                    The cost of votes increases quadratically: 1=1, 2=4, 3=9, 4=16, 5=25, 6=36, 7=49.
                   </p>
                 </div>
               </div>
@@ -394,10 +394,10 @@ export default function App() {
                   />
                 </div>
                 
-                {!isFullyAllocated && (
-                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100">
-                    <AlertCircle size={14} />
-                    You must use all {identityScore} credits to submit your vote.
+                {remainingCredits > 0 && (
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[#5A5A40] bg-[#5A5A40]/5 p-2 rounded-lg border border-[#5A5A40]/10">
+                    <Info size={14} />
+                    You have {remainingCredits} credits remaining. These will be counted as rollover.
                   </div>
                 )}
               </div>
@@ -460,8 +460,7 @@ export default function App() {
 
               <button
                 onClick={handleSubmit}
-                disabled={!isFullyAllocated}
-                className="w-full py-4 bg-[#141414] text-white rounded-2xl font-bold text-lg hover:bg-[#141414]/90 disabled:opacity-20 disabled:cursor-not-allowed transition-all shadow-xl shadow-[#141414]/20"
+                className="w-full py-4 bg-[#141414] text-white rounded-2xl font-bold text-lg hover:bg-[#141414]/90 transition-all shadow-xl shadow-[#141414]/20"
               >
                 Submit My Votes
               </button>
@@ -529,6 +528,26 @@ export default function App() {
                           </div>
                         );
                       })}
+                      {remainingCredits > 0 && (
+                        <div className="grid grid-cols-[1fr_120px_120px] gap-4 items-center py-5 transition-colors hover:bg-[#141414]/[0.02] -mx-8 px-8 italic">
+                          <span className="font-semibold text-[#141414]/40 leading-tight pr-4">Rollover Credits</span>
+                          <div className="flex justify-center">
+                            <div className="flex flex-col items-center">
+                              <span className="text-sm font-mono text-[#141414]/20 font-bold">
+                                -
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-end">
+                            <div className="flex flex-col items-end">
+                              <span className="text-sm font-mono font-bold text-[#141414]/40">
+                                {remainingCredits}
+                              </span>
+                              <span className="text-[8px] text-[#141414]/20 uppercase tracking-tighter font-bold">Credits</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -648,7 +667,7 @@ export default function App() {
           </div>
         </div>
         <p className="text-xs text-[#141414]/30">
-          © 2026 Quadratic.Vote • Built for NS Discretionary Budgeting
+          © 2026 Randall Baran-Chong • Built for The Network School
         </p>
       </footer>
     </div>

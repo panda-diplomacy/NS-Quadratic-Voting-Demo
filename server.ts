@@ -3,9 +3,11 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const VOTES_FILE = path.join(__dirname, "votes.json");
 
 interface GlobalVotes {
   [optionId: string]: {
@@ -18,6 +20,15 @@ const INITIAL_OPTIONS = ['cafe', 'snack-bar', 'scooters', 'dance', 'claude'];
 
 // Initialize in-memory state
 function loadGlobalVotes(): GlobalVotes {
+  try {
+    if (fs.existsSync(VOTES_FILE)) {
+      const data = fs.readFileSync(VOTES_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error loading votes file:", err);
+  }
+
   const votes: GlobalVotes = {};
   INITIAL_OPTIONS.forEach(id => {
     votes[id] = {
@@ -26,6 +37,14 @@ function loadGlobalVotes(): GlobalVotes {
     };
   });
   return votes;
+}
+
+function saveGlobalVotes(votes: GlobalVotes) {
+  try {
+    fs.writeFileSync(VOTES_FILE, JSON.stringify(votes, null, 2));
+  } catch (err) {
+    console.error("Error saving votes file:", err);
+  }
 }
 
 let globalVotes = loadGlobalVotes();
@@ -64,6 +83,8 @@ async function startServer() {
               globalVotes[optionId].raw_votes += voteCount;
             }
           });
+          
+          saveGlobalVotes(globalVotes);
           
           // Broadcast update to all clients
           const updateMsg = JSON.stringify({ type: "SYNC", data: globalVotes });

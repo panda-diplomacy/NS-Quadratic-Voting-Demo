@@ -18,7 +18,12 @@ import {
   Calendar,
   UserPlus,
   Presentation,
-  Calculator
+  Calculator,
+  LayoutDashboard,
+  ShieldAlert,
+  TrendingUp,
+  Target,
+  Zap
 } from 'lucide-react';
 import { cn } from './utils';
 import { Proposal, VoteAllocation } from './types';
@@ -39,12 +44,45 @@ const PROPOSALS: Proposal[] = [
   },
 ];
 
+const TARGET_BUDGETS: Record<string, number> = {
+  'cafe': 7000,
+  'snack-bar': 10000,
+  'scooters': 7500,
+  'dance': 6500,
+  'claude': 9400
+};
+
+const QF_POOL = 25000;
+
+interface Contribution {
+  userId: string;
+  votes: number;
+  weight: number;
+}
+
+interface GlobalState {
+  proposals: {
+    [optionId: string]: Contribution[];
+  };
+  vetoes: {
+    userId: string;
+    weight: number;
+  }[];
+  participants: {
+    [userId: string]: number;
+  };
+}
+
 export default function App() {
-  const [view, setView] = useState<'identity' | 'list' | 'vote' | 'success' | 'qr'>('identity');
+  const [view, setView] = useState<'identity' | 'list' | 'vote' | 'success' | 'qr' | 'overview'>('identity');
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
   const [allocations, setAllocations] = useState<VoteAllocation>({});
   const [appUrl, setAppUrl] = useState('');
-  const [globalVotes, setGlobalVotes] = useState<Record<string, { credits: number, raw_votes: number }>>({});
+  const [globalState, setGlobalState] = useState<GlobalState>({
+    proposals: {},
+    vetoes: [],
+    participants: {}
+  });
   const [identityInputs, setIdentityInputs] = useState<Record<string, string>>({
     hosted: '',
     attended: '',
@@ -52,6 +90,30 @@ export default function App() {
     referrals: ''
   });
   const [identityScore, setIdentityScore] = useState(10);
+  const [vetoed, setVetoed] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(72 * 3600); // 72 hours in seconds
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+  const [userId] = useState(() => {
+    const saved = localStorage.getItem('ns_user_id');
+    if (saved) return saved;
+    const newId = Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('ns_user_id', newId);
+    return newId;
+  });
+
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -66,7 +128,7 @@ export default function App() {
       try {
         const payload = JSON.parse(event.data);
         if (payload.type === 'SYNC') {
-          setGlobalVotes(payload.data);
+          setGlobalState(payload.data);
         }
       } catch (err) {
         console.error('Error parsing socket message:', err);
@@ -85,6 +147,42 @@ export default function App() {
   }, [allocations]);
 
   const remainingCredits = identityScore - totalCreditsUsed;
+
+  const qfResults = useMemo(() => {
+    const results: Record<string, { score: number, allocation: number, multiplier: number, totalVotes: number }> = {};
+    let totalRepublicScore = 0;
+
+    Object.keys(TARGET_BUDGETS).forEach(id => {
+      const contributions = globalState.proposals[id] || [];
+      const totalVotes = contributions.reduce((sum: number, c) => sum + c.votes, 0);
+      const score = Math.pow(contributions.reduce((sum: number, c) => sum + Math.sqrt(c.votes), 0), 2);
+      
+      results[id] = { score, allocation: 0, multiplier: 0, totalVotes };
+      totalRepublicScore += score;
+    });
+
+    if (totalRepublicScore > 0) {
+      Object.keys(results).forEach(id => {
+        const res = results[id];
+        res.allocation = (res.score / totalRepublicScore) * QF_POOL;
+        res.multiplier = res.totalVotes > 0 ? res.allocation / res.totalVotes : 0;
+      });
+    }
+
+    return results;
+  }, [globalState]);
+
+  const vetoStats = useMemo(() => {
+    const totalVetoWeight = globalState.vetoes.reduce((sum: number, v) => sum + v.weight, 0);
+    const totalParticipantWeight = (Object.values(globalState.participants) as number[]).reduce((sum: number, w) => sum + w, 0);
+    const percentage = totalParticipantWeight > 0 ? (totalVetoWeight / totalParticipantWeight) * 100 : 0;
+    return {
+      totalVetoWeight,
+      totalParticipantWeight,
+      percentage,
+      isVetoed: percentage >= 20
+    };
+  }, [globalState]);
 
   const handleIdentitySubmit = (e: any) => {
     e.preventDefault();
@@ -127,7 +225,12 @@ export default function App() {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'VOTE',
-        data: { allocations }
+        data: { 
+          userId,
+          allocations, 
+          weight: identityScore,
+          vetoed
+        }
       }));
     }
     setView('success');
@@ -138,18 +241,26 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-[#141414]/10 px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('identity')}>
-          <div className="w-8 h-8 bg-[#5A5A40] rounded-lg flex items-center justify-center text-white">
-            <Vote size={20} />
+          <div className="w-8 h-8 bg-[#141414] rounded-lg flex items-center justify-center">
+            <Vote className="text-white" size={18} />
           </div>
-          <h1 className="text-xl font-serif italic font-semibold tracking-tight">Quadratic Simulation vNS</h1>
+          <h1 className="font-serif font-bold text-xl tracking-tight">The Quadratic Simulation</h1>
         </div>
-        <button 
-          onClick={() => setView('qr')}
-          className="p-2 hover:bg-[#141414]/5 rounded-full transition-colors"
-          title="Share QR Code"
-        >
-          <QrCode size={20} />
-        </button>
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setView('overview')}
+            className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/5 hover:bg-[#141414]/10 transition-all text-xs font-bold uppercase tracking-widest"
+          >
+            <LayoutDashboard size={14} />
+            Overview
+          </button>
+          <button 
+            onClick={() => setView('qr')}
+            className="w-10 h-10 rounded-full border border-[#141414]/10 flex items-center justify-center hover:bg-[#141414]/5 transition-all"
+          >
+            <QrCode size={20} />
+          </button>
+        </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-6 py-12">
@@ -274,6 +385,14 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-8"
             >
+              <div className="flex flex-col items-center justify-center space-y-4 py-4">
+                <div className="bg-[#141414] text-white px-6 py-3 rounded-2xl font-mono text-3xl font-bold shadow-xl border border-white/10 flex items-center gap-3">
+                  <Calendar size={24} className="text-white/40" />
+                  {formatTime(timeLeft)}
+                </div>
+                <p className="text-[10px] uppercase font-bold tracking-[0.3em] text-[#141414]/30">Time Remaining in Simulation</p>
+              </div>
+
               <div className="flex items-center justify-between">
                 <div className="space-y-2">
                   <h2 className="text-4xl font-serif font-bold tracking-tight">Open Proposals</h2>
@@ -289,18 +408,82 @@ export default function App() {
               </div>
 
               <div className="grid gap-4">
-                {PROPOSALS.map((proposal) => (
-                  <button
-                    key={proposal.id}
-                    onClick={() => handleProposalSelect(proposal)}
-                    className="group w-full text-left bg-white p-6 rounded-2xl border border-[#141414]/10 hover:border-[#5A5A40] transition-all hover:shadow-xl hover:shadow-[#5A5A40]/5 flex items-center justify-between"
-                  >
+                {/* Rule Proposal Card */}
+                <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-6">
+                  <div className="flex items-center justify-between">
                     <div className="space-y-1">
-                      <h3 className="text-xl font-semibold group-hover:text-[#5A5A40] transition-colors">{proposal.title}</h3>
-                      <p className="text-sm text-[#141414]/60 line-clamp-1">{proposal.description}</p>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-[#141414]/40">Rule Proposal</h3>
+                      <h4 className="text-xl font-serif font-bold">Ban all fireworks in Forest City</h4>
                     </div>
-                    <ChevronRight className="text-[#141414]/20 group-hover:text-[#5A5A40] transition-colors" />
-                  </button>
+                    <div className="p-3 bg-red-50 rounded-2xl">
+                      <ShieldAlert className="text-red-500" size={24} />
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 bg-red-50/50 rounded-2xl border border-red-100">
+                    <p className="text-sm text-red-900/70 leading-relaxed">
+                      This rule would prohibit the use of all consumer fireworks within Forest City limits to protect local wildlife and reduce noise pollution.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => {
+                        const nextVetoed = !vetoed;
+                        setVetoed(nextVetoed);
+                        // Auto-submit veto change
+                        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+                          socketRef.current.send(JSON.stringify({
+                            type: 'VOTE',
+                            data: { 
+                              userId,
+                              allocations, 
+                              weight: identityScore,
+                              vetoed: nextVetoed
+                            }
+                          }));
+                        }
+                      }}
+                      className={cn(
+                        "w-full py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2",
+                        vetoed 
+                          ? "bg-red-500 text-white shadow-lg shadow-red-500/20" 
+                          : "bg-white border-2 border-red-500 text-red-500 hover:bg-red-50"
+                      )}
+                    >
+                      {vetoed ? <CheckCircle2 size={20} /> : <ShieldAlert size={20} />}
+                      {vetoed ? "Proposal Vetoed" : "Veto Proposal"}
+                    </button>
+                    <p className="text-[10px] text-center text-[#141414]/40 italic">
+                      If you support this motion, no action required.
+                    </p>
+                  </div>
+                </div>
+
+                {PROPOSALS.map((proposal) => (
+                  <div key={proposal.id} className="space-y-2">
+                    <button
+                      onClick={() => handleProposalSelect(proposal)}
+                      className="group w-full text-left bg-[#1a3a14] p-8 rounded-3xl border border-white/10 hover:border-white/30 transition-all shadow-2xl shadow-[#1a3a14]/20 flex items-center justify-between relative overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+                      <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/5 blur-3xl rounded-full pointer-events-none" />
+                      
+                      <div className="space-y-3 relative z-10">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-1 bg-white/10 rounded text-[10px] font-bold uppercase tracking-widest text-white/60">Active Budget Allocation</span>
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        </div>
+                        <h3 className="text-2xl font-serif font-bold text-white tracking-tight">{proposal.title}</h3>
+                        <p className="text-white/60 text-sm max-w-md">{proposal.description}</p>
+                        <p className="text-emerald-400 font-bold text-xs uppercase tracking-widest pt-2">Cast your vote</p>
+                      </div>
+                      
+                      <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center group-hover:scale-110 transition-transform relative z-10">
+                        <ChevronRight className="text-white" size={24} />
+                      </div>
+                    </button>
+                  </div>
                 ))}
               </div>
 
@@ -309,29 +492,28 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
                     <h3 className="text-xs uppercase tracking-[0.2em] font-bold text-[#141414]/40">Guild Standings</h3>
-                    <p className="text-[10px] text-[#5A5A40] font-mono font-bold uppercase">Current Weighted Consensus</p>
+                    <p className="text-[10px] text-[#5A5A40] font-mono font-bold uppercase">Current Quadratic Allocation</p>
                   </div>
                   <Users size={16} className="text-[#141414]/20" />
                 </div>
                 
                 <div className="space-y-4">
                   {PROPOSALS[0].options.map((option) => {
-                    const data = globalVotes[option.id] || { credits: 0, raw_votes: 0 };
-                    const totalRawVotes = data.raw_votes;
-                    const maxRawVotes = Math.max(...Object.values(globalVotes).map(v => (v as { raw_votes: number }).raw_votes), 1);
-                    const percentage = (totalRawVotes / maxRawVotes) * 100;
+                    const result = qfResults[option.id] || { allocation: 0, multiplier: 0, totalVotes: 0 };
+                    const target = TARGET_BUDGETS[option.id];
+                    const progress = Math.min((result.allocation / target) * 100, 100);
 
                     return (
                       <div key={option.id} className="space-y-2">
                         <div className="flex justify-between items-center text-[10px]">
                           <span className="font-semibold text-[#141414]/60 uppercase tracking-wider">{option.name}</span>
-                          <span className="font-mono text-[#5A5A40] font-bold">{totalRawVotes}</span>
+                          <span className="font-mono text-[#5A5A40] font-bold">${Math.floor(result.allocation).toLocaleString()}</span>
                         </div>
                         <div className="h-1 bg-[#141414]/5 rounded-full overflow-hidden">
                           <motion.div 
                             className="h-full bg-[#5A5A40]/40"
                             initial={{ width: 0 }}
-                            animate={{ width: `${percentage}%` }}
+                            animate={{ width: `${progress}%` }}
                             transition={{ duration: 1.5, ease: "circOut" }}
                           />
                         </div>
@@ -557,37 +739,54 @@ export default function App() {
                   <div className="absolute top-0 right-0 w-32 h-32 bg-[#5A5A40]/10 blur-3xl -mr-16 -mt-16 rounded-full" />
                   <div className="flex items-center justify-between relative z-10">
                     <div className="space-y-1">
-                      <h3 className="text-sm uppercase tracking-widest font-bold text-white/40">Guild Results</h3>
+                      <h3 className="text-sm uppercase tracking-widest font-bold text-white/40">NS Allocation</h3>
                       <div className="flex items-center gap-1.5">
                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <p className="text-[10px] text-white/20 font-mono uppercase tracking-tighter">Live Consensus</p>
+                        <p className="text-[10px] text-white/20 font-mono uppercase tracking-tighter">Quadratic Funding Pool: ${QF_POOL.toLocaleString()}</p>
                       </div>
                     </div>
                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
-                      <Users size={18} className="text-[#5A5A40]" />
+                      <TrendingUp size={18} className="text-[#5A5A40]" />
                     </div>
                   </div>
-                  <div className="space-y-4 relative z-10">
+                  <div className="space-y-6 relative z-10">
                     {selectedProposal?.options.map((option) => {
-                      const data = globalVotes[option.id] || { credits: 0, raw_votes: 0 };
-                      const totalRawVotes = data.raw_votes;
-                      const maxRawVotes = Math.max(...Object.values(globalVotes).map(v => (v as { raw_votes: number }).raw_votes), 1);
-                      const percentage = (totalRawVotes / maxRawVotes) * 100;
+                      const result = qfResults[option.id] || { allocation: 0, multiplier: 0, totalVotes: 0 };
+                      const target = TARGET_BUDGETS[option.id];
+                      const progress = Math.min((result.allocation / target) * 100, 100);
+                      
+                      let statusColor = "bg-red-500";
+                      let statusText = "Underfunded";
+                      if (result.allocation >= target) {
+                        statusColor = "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]";
+                        statusText = "Fully Funded";
+                      } else if (result.allocation >= target * 0.5) {
+                        statusColor = "bg-yellow-500";
+                        statusText = "Soft Consensus";
+                      }
 
                       return (
-                        <div key={option.id} className="space-y-1.5">
-                          <div className="flex justify-between items-end text-xs">
-                            <span className="font-medium text-white/90">{option.name}</span>
+                        <div key={option.id} className="space-y-2">
+                          <div className="flex justify-between items-end">
+                            <div className="space-y-0.5">
+                              <span className="font-medium text-white/90 text-sm">{option.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className={cn("text-[8px] uppercase font-bold px-1.5 py-0.5 rounded", statusColor, "text-white")}>
+                                  {statusText}
+                                </span>
+                                <span className="text-[10px] text-white/40 font-mono">Match: {result.multiplier.toFixed(2)}x</span>
+                              </div>
+                            </div>
                             <div className="text-right flex flex-col items-end">
-                              <span className="font-mono text-[#5A5A40] font-bold text-sm leading-none">{totalRawVotes}</span>
-                              <span className="text-[9px] text-white/30 uppercase font-bold tracking-tighter mt-0.5">Votes</span>
+                              <span className="font-mono text-[#5A5A40] font-bold text-sm leading-none">${Math.floor(result.allocation).toLocaleString()}</span>
+                              <span className="text-[9px] text-white/30 uppercase font-bold tracking-tighter mt-0.5">Target: ${target.toLocaleString()}</span>
                             </div>
                           </div>
-                          <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
                             <motion.div 
-                              className="h-full bg-gradient-to-r from-[#5A5A40] to-[#7A7A5A]"
+                              className={cn("h-full", statusColor)}
                               initial={{ width: 0 }}
-                              animate={{ width: `${percentage}%` }}
+                              animate={{ width: `${progress}%` }}
                               transition={{ duration: 1, ease: "easeOut" }}
                             />
                           </div>
@@ -603,6 +802,164 @@ export default function App() {
                 className="px-8 py-3 border border-[#141414]/10 rounded-full font-medium hover:bg-[#141414]/5 transition-all"
               >
                 Back to Home
+              </button>
+            </motion.div>
+          )}
+
+          {view === 'overview' && (
+            <motion.div
+              key="overview"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-8"
+            >
+              <div className="flex items-center justify-between">
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-serif font-bold tracking-tight">Overview</h2>
+                  <p className="text-[#141414]/60">Live dashboard of the collective decision-making process.</p>
+                </div>
+                <button 
+                  onClick={() => setView('list')}
+                  className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#5A5A40]"
+                >
+                  <ArrowLeft size={14} />
+                  Back
+                </button>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white p-6 rounded-3xl border border-[#141414]/10 shadow-sm space-y-2">
+                  <p className="text-[10px] uppercase font-bold tracking-widest text-[#141414]/30">Participants</p>
+                  <div className="flex items-center gap-2">
+                    <Users size={16} className="text-[#5A5A40]" />
+                    <p className="text-2xl font-mono font-bold">{Object.keys(globalState.participants).length}</p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl border border-[#141414]/10 shadow-sm space-y-2">
+                  <p className="text-[10px] uppercase font-bold tracking-widest text-[#141414]/30">Total Votes</p>
+                  <div className="flex items-center gap-2">
+                    <Vote size={16} className="text-[#5A5A40]" />
+                    <p className="text-2xl font-mono font-bold">
+                      {(Object.values(globalState.proposals).flat() as Contribution[]).reduce((sum: number, c) => sum + c.votes, 0)}
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl border border-[#141414]/10 shadow-sm space-y-2">
+                  <p className="text-[10px] uppercase font-bold tracking-widest text-[#141414]/30">Total Weight</p>
+                  <div className="flex items-center gap-2">
+                    <Zap size={16} className="text-[#5A5A40]" />
+                    <p className="text-2xl font-mono font-bold">
+                      {(Object.values(globalState.participants) as number[]).reduce((sum: number, w) => sum + w, 0)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Veto Status */}
+              <div className={cn(
+                "p-8 rounded-3xl border flex items-center justify-between",
+                vetoStats.isVetoed ? "bg-red-500 text-white border-red-600" : "bg-white border-[#141414]/10"
+              )}>
+                <div className="space-y-1">
+                  <h3 className={cn("text-xs font-bold uppercase tracking-widest", vetoStats.isVetoed ? "text-white/60" : "text-[#141414]/40")}>
+                    Rule Proposal Status
+                  </h3>
+                  <p className="text-xl font-serif font-bold">
+                    {vetoStats.isVetoed ? "Rule has been vetoed" : "Achieved Rough Consensus"}
+                  </p>
+                  <p className={cn("text-xs max-w-md", vetoStats.isVetoed ? "text-white/60" : "text-[#141414]/60")}>
+                    Proposal: Ban all fireworks in Forest City. This rule would prohibit the use of all consumer fireworks within Forest City limits.
+                  </p>
+                  <div className="flex items-center gap-2 pt-2">
+                    <div className="h-1.5 w-32 bg-black/10 rounded-full overflow-hidden">
+                      <div 
+                        className={cn("h-full", vetoStats.isVetoed ? "bg-white" : "bg-red-500")} 
+                        style={{ width: `${Math.min(vetoStats.percentage, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono font-bold">{vetoStats.percentage.toFixed(1)}% Vetoed</span>
+                    <span className="text-[10px] uppercase font-bold tracking-tighter opacity-40">(Threshold: 20%)</span>
+                  </div>
+                </div>
+                <ShieldAlert size={32} className={vetoStats.isVetoed ? "text-white" : "text-red-500"} />
+              </div>
+
+              {/* Leaderboard */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#141414]/40">Funding Leaderboard</h3>
+                <div className="grid gap-4">
+                  {PROPOSALS[0].options.map((option) => {
+                    const result = qfResults[option.id] || { allocation: 0, multiplier: 0, totalVotes: 0 };
+                    const target = TARGET_BUDGETS[option.id];
+                    const progress = Math.min((result.allocation / target) * 100, 100);
+                    const totalWeight = (Object.values(globalState.participants) as number[]).reduce((sum: number, w) => sum + w, 0);
+                    const voteShare = totalWeight > 0 ? (result.totalVotes / totalWeight) * 100 : 0;
+
+                    let statusColor = "bg-red-500";
+                    let statusGlow = "";
+                    if (result.allocation >= target) {
+                      statusColor = "bg-emerald-500";
+                      statusGlow = "shadow-[0_0_20px_rgba(16,185,129,0.3)]";
+                    } else if (result.allocation >= target * 0.5) {
+                      statusColor = "bg-yellow-500";
+                    }
+
+                    return (
+                      <div key={option.id} className={cn("bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-6", statusGlow)}>
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <h4 className="text-xl font-serif font-bold">{option.name}</h4>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1 text-[10px] font-bold text-[#141414]/40 uppercase tracking-widest">
+                                <Users size={12} />
+                                {globalState.proposals[option.id]?.length || 0} Contributors
+                              </div>
+                              <div className="flex items-center gap-1 text-[10px] font-bold text-[#141414]/40 uppercase tracking-widest">
+                                <Vote size={12} />
+                                {result.totalVotes} Total Votes
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-mono font-bold text-[#5A5A40]">${Math.floor(result.allocation).toLocaleString()}</p>
+                            <p className="text-[10px] uppercase font-bold tracking-widest text-[#141414]/30">Allocated of ${target.toLocaleString()}</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest">
+                            <span className="text-[#141414]/40">Funding Progress</span>
+                            <span className="text-[#5A5A40]">{progress.toFixed(1)}%</span>
+                          </div>
+                          <div className="h-3 bg-[#141414]/5 rounded-full overflow-hidden p-0.5 border border-[#141414]/5">
+                            <motion.div 
+                              className={cn("h-full rounded-full", statusColor)}
+                              initial={{ width: 0 }}
+                              animate={{ width: `${progress}%` }}
+                              transition={{ duration: 1, ease: "easeOut" }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 pt-2">
+                          <div className="bg-[#F5F5F0] p-4 rounded-2xl space-y-1">
+                            <p className="text-[9px] uppercase font-bold tracking-widest text-[#141414]/30">Weight Share</p>
+                            <p className="text-lg font-mono font-bold text-[#5A5A40]">{voteShare.toFixed(1)}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setView('list')}
+                className="w-full py-4 border border-[#141414]/10 rounded-2xl font-bold hover:bg-[#141414]/5 transition-all"
+              >
+                Return to Proposals
               </button>
             </motion.div>
           )}

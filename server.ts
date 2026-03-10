@@ -7,52 +7,62 @@ import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const VOTES_FILE = path.join(__dirname, "votes.json");
+const STATE_FILE = path.join(__dirname, "state.json");
 
-interface GlobalVotes {
-  [optionId: string]: {
-    credits: number;
-    raw_votes: number;
+interface Contribution {
+  userId: string;
+  votes: number;
+  weight: number;
+}
+
+interface GlobalState {
+  proposals: {
+    [optionId: string]: Contribution[];
+  };
+  vetoes: {
+    userId: string;
+    weight: number;
+  }[];
+  participants: {
+    [userId: string]: number; // userId -> weight
   };
 }
 
 const INITIAL_OPTIONS = ['cafe', 'snack-bar', 'scooters', 'dance', 'claude'];
 
-// Initialize in-memory state
-function loadGlobalVotes(): GlobalVotes {
+function loadGlobalState(): GlobalState {
   try {
-    if (fs.existsSync(VOTES_FILE)) {
-      const data = fs.readFileSync(VOTES_FILE, "utf-8");
+    if (fs.existsSync(STATE_FILE)) {
+      const data = fs.readFileSync(STATE_FILE, "utf-8");
       return JSON.parse(data);
     }
   } catch (err) {
-    console.error("Error loading votes file:", err);
+    console.error("Error loading state file:", err);
   }
 
-  const votes: GlobalVotes = {};
+  const state: GlobalState = {
+    proposals: {},
+    vetoes: [],
+    participants: {}
+  };
   INITIAL_OPTIONS.forEach(id => {
-    votes[id] = {
-      credits: 0,
-      raw_votes: 0
-    };
+    state.proposals[id] = [];
   });
-  return votes;
+  return state;
 }
 
-function saveGlobalVotes(votes: GlobalVotes) {
+function saveGlobalState(state: GlobalState) {
   try {
-    fs.writeFileSync(VOTES_FILE, JSON.stringify(votes, null, 2));
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   } catch (err) {
-    console.error("Error saving votes file:", err);
+    console.error("Error saving state file:", err);
   }
 }
 
-let globalVotes = loadGlobalVotes();
+let globalState = loadGlobalState();
 
 async function startServer() {
   const app = express();
-  
-  // 3. Ensure your port is dynamic for the cloud
   const PORT = Number(process.env.PORT) || 3000;
   
   const server = app.listen(PORT, '0.0.0.0', () => {
@@ -61,33 +71,41 @@ async function startServer() {
 
   const wss = new WebSocketServer({ server });
 
-  // WebSocket logic
   wss.on("connection", (ws: WebSocket) => {
-    console.log("Client connected");
-    
-    // Send initial state to new client
-    ws.send(JSON.stringify({ type: "SYNC", data: globalVotes }));
+    ws.send(JSON.stringify({ type: "SYNC", data: globalState }));
 
     ws.on("message", (message: string) => {
       try {
         const payload = JSON.parse(message);
+        
         if (payload.type === "VOTE") {
-          const { allocations } = payload.data;
+          const { userId, allocations, weight, vetoed } = payload.data;
           
-          // Update global state
+          // Update participant weight
+          globalState.participants[userId] = weight;
+
+          // Clear existing contributions for this user
+          Object.keys(globalState.proposals).forEach(id => {
+            globalState.proposals[id] = globalState.proposals[id].filter(c => c.userId !== userId);
+          });
+
+          // Update allocations
           Object.entries(allocations).forEach(([optionId, votes]) => {
             const voteCount = Number(votes);
-            const quadraticValue = voteCount * voteCount;
-            if (globalVotes[optionId] !== undefined && voteCount > 0) {
-              globalVotes[optionId].credits += quadraticValue;
-              globalVotes[optionId].raw_votes += voteCount;
+            if (globalState.proposals[optionId] !== undefined && voteCount > 0) {
+              globalState.proposals[optionId].push({ userId, votes: voteCount, weight });
             }
           });
+
+          // Update veto
+          globalState.vetoes = globalState.vetoes.filter(v => v.userId !== userId);
+          if (vetoed) {
+            globalState.vetoes.push({ userId, weight });
+          }
           
-          saveGlobalVotes(globalVotes);
+          saveGlobalState(globalState);
           
-          // Broadcast update to all clients
-          const updateMsg = JSON.stringify({ type: "SYNC", data: globalVotes });
+          const updateMsg = JSON.stringify({ type: "SYNC", data: globalState });
           wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN) {
               client.send(updateMsg);
@@ -98,18 +116,12 @@ async function startServer() {
         console.error("Error processing message:", err);
       }
     });
-
-    ws.on("close", () => {
-      console.log("Client disconnected");
-    });
   });
 
-  // API routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -117,7 +129,6 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Production serving
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {
       res.sendFile(path.join(__dirname, "dist", "index.html"));

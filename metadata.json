@@ -1,0 +1,5 @@
+{
+  "name": "Quadratic Voting Demo",
+  "description": "A demo application for quadratic voting on discretionary budget proposals.",
+  "requestFramePermissions": []
+}

@@ -45,11 +45,11 @@ export default function App() {
   const [allocations, setAllocations] = useState<VoteAllocation>({});
   const [appUrl, setAppUrl] = useState('');
   const [globalVotes, setGlobalVotes] = useState<Record<string, { credits: number, raw_votes: number }>>({});
-  const [identityInputs, setIdentityInputs] = useState({
-    hosted: 0,
-    attended: 0,
-    burns: 0,
-    referrals: 0
+  const [identityInputs, setIdentityInputs] = useState<Record<string, string>>({
+    hosted: '',
+    attended: '',
+    burns: '',
+    referrals: ''
   });
   const [identityScore, setIdentityScore] = useState(10);
   const socketRef = useRef<WebSocket | null>(null);
@@ -89,10 +89,15 @@ export default function App() {
 
   const handleIdentitySubmit = (e: any) => {
     e.preventDefault();
-    const score = (identityInputs.hosted * 3) + 
-                  (identityInputs.attended * 1) + 
-                  (identityInputs.burns * 1.25) + 
-                  (identityInputs.referrals * 5);
+    const hosted = Number(identityInputs.hosted) || 0;
+    const attended = Number(identityInputs.attended) || 0;
+    const burns = Number(identityInputs.burns) || 0;
+    const referrals = Number(identityInputs.referrals) || 0;
+    
+    const score = (hosted * 3) + 
+                  (attended * 1) + 
+                  (burns * 1.25) + 
+                  (referrals * 5);
     setIdentityScore(Math.floor(score));
     setView('list');
   };
@@ -159,7 +164,7 @@ export default function App() {
               className="space-y-8"
             >
               <div className="space-y-2 text-center">
-                <h2 className="text-4xl font-serif font-bold tracking-tight">March Score</h2>
+                <h2 className="text-4xl font-serif font-bold tracking-tight">Proof of Work - March Score</h2>
                 <p className="text-[#141414]/60">Calculate your identity points based on your contributions this month.</p>
               </div>
 
@@ -171,10 +176,12 @@ export default function App() {
                       Events Hosted
                     </label>
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="0"
                       value={identityInputs.hosted}
-                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, hosted: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, hosted: e.target.value }))}
                       className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
                     />
                   </div>
@@ -184,10 +191,12 @@ export default function App() {
                       Events Attended
                     </label>
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="0"
                       value={identityInputs.attended}
-                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, attended: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, attended: e.target.value }))}
                       className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
                     />
                   </div>
@@ -197,11 +206,12 @@ export default function App() {
                       Burns
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="1"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="0"
                       value={identityInputs.burns}
-                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, burns: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, burns: e.target.value }))}
                       className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
                     />
                   </div>
@@ -211,10 +221,12 @@ export default function App() {
                       Referrals
                     </label>
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="0"
                       value={identityInputs.referrals}
-                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, referrals: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, referrals: e.target.value }))}
                       className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
                     />
                   </div>
@@ -224,7 +236,12 @@ export default function App() {
                   <div className="space-y-1">
                     <p className="text-[10px] uppercase tracking-widest font-bold text-[#141414]/30">Estimated Points</p>
                     <p className="text-2xl font-mono font-bold text-[#5A5A40]">
-                      {Math.floor((identityInputs.hosted * 3) + (identityInputs.attended * 1) + (identityInputs.burns * 1.25) + (identityInputs.referrals * 5))}
+                      {Math.floor(
+                        (Number(identityInputs.hosted) || 0) * 3 + 
+                        (Number(identityInputs.attended) || 0) * 1 + 
+                        (Number(identityInputs.burns) || 0) * 1.25 + 
+                        (Number(identityInputs.referrals) || 0) * 5
+                      )}
                     </p>
                   </div>
                   <button

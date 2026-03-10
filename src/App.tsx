@@ -343,7 +343,7 @@ export default function App() {
                         <div key={option.id} className="space-y-1">
                           <div className="flex justify-between items-center text-xs">
                             <span className="font-medium text-white/80">{option.name}</span>
-                            <span className="font-mono text-[#5A5A40] font-bold">{totalVotes} votes</span>
+                            <span className="font-mono text-[#5A5A40] font-bold">{totalVotes} cr allocated</span>
                           </div>
                           <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                             <motion.div 

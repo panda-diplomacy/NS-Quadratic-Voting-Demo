@@ -23,26 +23,33 @@ const db = new Database(dbPath);
 db.exec(`
   CREATE TABLE IF NOT EXISTS votes (
     option_id TEXT PRIMARY KEY,
-    count INTEGER DEFAULT 0
+    credits INTEGER DEFAULT 0,
+    raw_votes INTEGER DEFAULT 0
   )
 `);
 
 interface GlobalVotes {
-  [optionId: string]: number;
+  [optionId: string]: {
+    credits: number;
+    raw_votes: number;
+  };
 }
 
 const INITIAL_OPTIONS = ['cafe', 'snack-bar', 'scooters', 'dance', 'claude'];
 
 // Initialize options in DB if they don't exist
-const insertInitial = db.prepare('INSERT OR IGNORE INTO votes (option_id, count) VALUES (?, 0)');
+const insertInitial = db.prepare('INSERT OR IGNORE INTO votes (option_id, credits, raw_votes) VALUES (?, 0, 0)');
 INITIAL_OPTIONS.forEach(id => insertInitial.run(id));
 
 // Load initial state from DB
 function loadGlobalVotes(): GlobalVotes {
-  const rows = db.prepare('SELECT option_id, count FROM votes').all() as { option_id: string, count: number }[];
+  const rows = db.prepare('SELECT option_id, credits, raw_votes FROM votes').all() as { option_id: string, credits: number, raw_votes: number }[];
   const votes: GlobalVotes = {};
   rows.forEach(row => {
-    votes[row.option_id] = row.count;
+    votes[row.option_id] = {
+      credits: row.credits,
+      raw_votes: row.raw_votes
+    };
   });
   return votes;
 }
@@ -75,15 +82,16 @@ async function startServer() {
           const { allocations } = payload.data;
           
           // Update global state and DB
-          const updateStmt = db.prepare('UPDATE votes SET count = count + ? WHERE option_id = ?');
+          const updateStmt = db.prepare('UPDATE votes SET credits = credits + ?, raw_votes = raw_votes + ? WHERE option_id = ?');
           
           db.transaction(() => {
             Object.entries(allocations).forEach(([optionId, votes]) => {
               const voteCount = Number(votes);
               const quadraticValue = voteCount * voteCount;
-              if (globalVotes[optionId] !== undefined && quadraticValue > 0) {
-                globalVotes[optionId] += quadraticValue;
-                updateStmt.run(quadraticValue, optionId);
+              if (globalVotes[optionId] !== undefined && voteCount > 0) {
+                globalVotes[optionId].credits += quadraticValue;
+                globalVotes[optionId].raw_votes += voteCount;
+                updateStmt.run(quadraticValue, voteCount, optionId);
               }
             });
           })();

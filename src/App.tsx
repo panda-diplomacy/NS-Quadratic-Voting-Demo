@@ -41,7 +41,7 @@ export default function App() {
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
   const [allocations, setAllocations] = useState<VoteAllocation>({});
   const [appUrl, setAppUrl] = useState('');
-  const [globalVotes, setGlobalVotes] = useState<Record<string, number>>({});
+  const [globalVotes, setGlobalVotes] = useState<Record<string, { credits: number, raw_votes: number }>>({});
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -157,6 +157,43 @@ export default function App() {
                     <ChevronRight className="text-[#141414]/20 group-hover:text-[#5A5A40] transition-colors" />
                   </button>
                 ))}
+              </div>
+
+              {/* Guild Standings Preview */}
+              <div className="bg-white/50 backdrop-blur-sm p-8 rounded-3xl border border-[#141414]/5 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <h3 className="text-xs uppercase tracking-[0.2em] font-bold text-[#141414]/40">Guild Standings</h3>
+                    <p className="text-[10px] text-[#5A5A40] font-mono font-bold uppercase">Current Weighted Consensus</p>
+                  </div>
+                  <Users size={16} className="text-[#141414]/20" />
+                </div>
+                
+                <div className="space-y-4">
+                  {PROPOSALS[0].options.map((option) => {
+                    const data = globalVotes[option.id] || { credits: 0, raw_votes: 0 };
+                    const totalRawVotes = data.raw_votes;
+                    const maxRawVotes = Math.max(...Object.values(globalVotes).map(v => (v as { raw_votes: number }).raw_votes), 1);
+                    const percentage = (totalRawVotes / maxRawVotes) * 100;
+
+                    return (
+                      <div key={option.id} className="space-y-2">
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="font-semibold text-[#141414]/60 uppercase tracking-wider">{option.name}</span>
+                          <span className="font-mono text-[#5A5A40] font-bold">{totalRawVotes}</span>
+                        </div>
+                        <div className="h-1 bg-[#141414]/5 rounded-full overflow-hidden">
+                          <motion.div 
+                            className="h-full bg-[#5A5A40]/40"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${percentage}%` }}
+                            transition={{ duration: 1.5, ease: "circOut" }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </motion.div>
           )}
@@ -309,16 +346,26 @@ export default function App() {
                 {/* Personal Summary */}
                 <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 space-y-6 text-left">
                   <h3 className="text-sm uppercase tracking-widest font-bold text-[#141414]/40">Your Allocation</h3>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-[1.5fr,1fr,1fr] gap-4 pb-2 border-b border-[#141414]/10 text-[10px] uppercase font-bold tracking-wider text-[#141414]/40">
+                      <span>Category</span>
+                      <span className="text-center">Votes Allocated</span>
+                      <span className="text-right">Credits Used</span>
+                    </div>
                     {Object.entries(allocations).map(([id, votes]) => {
                       if (votes === 0) return null;
                       const option = selectedProposal?.options.find(o => o.id === id);
                       return (
-                        <div key={id} className="flex justify-between items-center py-2 border-b border-[#141414]/5 last:border-0">
-                          <span className="font-medium text-sm">{option?.name}</span>
-                          <div className="flex items-center gap-3">
+                        <div key={id} className="grid grid-cols-[1.5fr,1fr,1fr] gap-4 items-center py-2 border-b border-[#141414]/5 last:border-0">
+                          <span className="font-medium text-sm truncate">{option?.name}</span>
+                          <div className="flex justify-center">
                             <span className="text-xs font-mono bg-[#5A5A40]/10 text-[#5A5A40] px-2 py-1 rounded">
-                              {votes}v
+                              {votes}
+                            </span>
+                          </div>
+                          <div className="flex justify-end">
+                            <span className="text-xs font-mono font-bold text-[#141414]/60">
+                              {(votes as number) * (votes as number)}
                             </span>
                           </div>
                         </div>
@@ -327,29 +374,43 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Global Summary */}
-                <div className="bg-[#141414] p-8 rounded-3xl text-white space-y-6 text-left">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm uppercase tracking-widest font-bold text-white/40">Global Results</h3>
-                    <Users size={16} className="text-white/40" />
+                {/* Guild Summary */}
+                <div className="bg-[#1a1a14] p-8 rounded-3xl text-white space-y-6 text-left border border-white/5 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#5A5A40]/10 blur-3xl -mr-16 -mt-16 rounded-full" />
+                  <div className="flex items-center justify-between relative z-10">
+                    <div className="space-y-1">
+                      <h3 className="text-sm uppercase tracking-widest font-bold text-white/40">Guild Results</h3>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <p className="text-[10px] text-white/20 font-mono uppercase tracking-tighter">Live Consensus</p>
+                      </div>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+                      <Users size={18} className="text-[#5A5A40]" />
+                    </div>
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-4 relative z-10">
                     {selectedProposal?.options.map((option) => {
-                      const totalVotes = globalVotes[option.id] || 0;
-                      const maxGlobalVotes = Math.max(...Object.values(globalVotes).map(v => Number(v)), 1);
-                      const percentage = (totalVotes / maxGlobalVotes) * 100;
+                      const data = globalVotes[option.id] || { credits: 0, raw_votes: 0 };
+                      const totalRawVotes = data.raw_votes;
+                      const maxRawVotes = Math.max(...Object.values(globalVotes).map(v => (v as { raw_votes: number }).raw_votes), 1);
+                      const percentage = (totalRawVotes / maxRawVotes) * 100;
 
                       return (
-                        <div key={option.id} className="space-y-1">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-medium text-white/80">{option.name}</span>
-                            <span className="font-mono text-[#5A5A40] font-bold">{totalVotes} cr allocated</span>
+                        <div key={option.id} className="space-y-1.5">
+                          <div className="flex justify-between items-end text-xs">
+                            <span className="font-medium text-white/90">{option.name}</span>
+                            <div className="text-right flex flex-col items-end">
+                              <span className="font-mono text-[#5A5A40] font-bold text-sm leading-none">{totalRawVotes}</span>
+                              <span className="text-[9px] text-white/30 uppercase font-bold tracking-tighter mt-0.5">Votes</span>
+                            </div>
                           </div>
-                          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
                             <motion.div 
-                              className="h-full bg-[#5A5A40]"
+                              className="h-full bg-gradient-to-r from-[#5A5A40] to-[#7A7A5A]"
                               initial={{ width: 0 }}
                               animate={{ width: `${percentage}%` }}
+                              transition={{ duration: 1, ease: "easeOut" }}
                             />
                           </div>
                         </div>

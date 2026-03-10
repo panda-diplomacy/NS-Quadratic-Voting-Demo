@@ -13,18 +13,21 @@ import {
   Info,
   Trophy,
   Users,
-  AlertCircle
+  AlertCircle,
+  Flame,
+  Calendar,
+  UserPlus,
+  Presentation,
+  Calculator
 } from 'lucide-react';
 import { cn } from './utils';
 import { Proposal, VoteAllocation } from './types';
-
-const INITIAL_CREDITS = 10;
 
 const PROPOSALS: Proposal[] = [
   {
     id: 'ns-budget-2026',
     title: 'NS Discretionary Budget April 2026',
-    description: 'Allocate your 10 identity points to decide how the discretionary budget should be spent this month.',
+    description: 'Allocate your identity points to decide how the discretionary budget should be spent this month.',
     status: 'open',
     options: [
       { id: 'cafe', name: 'Free NS cafe' },
@@ -37,11 +40,18 @@ const PROPOSALS: Proposal[] = [
 ];
 
 export default function App() {
-  const [view, setView] = useState<'list' | 'vote' | 'success' | 'qr'>('list');
+  const [view, setView] = useState<'identity' | 'list' | 'vote' | 'success' | 'qr'>('identity');
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
   const [allocations, setAllocations] = useState<VoteAllocation>({});
   const [appUrl, setAppUrl] = useState('');
   const [globalVotes, setGlobalVotes] = useState<Record<string, { credits: number, raw_votes: number }>>({});
+  const [identityInputs, setIdentityInputs] = useState({
+    hosted: 0,
+    attended: 0,
+    burns: 0,
+    referrals: 0
+  });
+  const [identityScore, setIdentityScore] = useState(10);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -74,8 +84,18 @@ export default function App() {
     return Object.values(allocations).reduce((sum: number, votes: number) => sum + (votes * votes), 0);
   }, [allocations]);
 
-  const remainingCredits = INITIAL_CREDITS - totalCreditsUsed;
-  const isFullyAllocated = totalCreditsUsed === INITIAL_CREDITS;
+  const remainingCredits = identityScore - totalCreditsUsed;
+  const isFullyAllocated = totalCreditsUsed === identityScore;
+
+  const handleIdentitySubmit = (e: any) => {
+    e.preventDefault();
+    const score = (identityInputs.hosted * 3) + 
+                  (identityInputs.attended * 1) + 
+                  (identityInputs.burns * 1.25) + 
+                  (identityInputs.referrals * 5);
+    setIdentityScore(Math.floor(score));
+    setView('list');
+  };
 
   const handleVoteChange = (optionId: string, delta: number) => {
     const currentVotes = allocations[optionId] || 0;
@@ -113,7 +133,7 @@ export default function App() {
     <div className="min-h-screen bg-[#F5F5F0] text-[#141414] font-sans selection:bg-[#5A5A40] selection:text-white">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-[#141414]/10 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('list')}>
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('identity')}>
           <div className="w-8 h-8 bg-[#5A5A40] rounded-lg flex items-center justify-center text-white">
             <Vote size={20} />
           </div>
@@ -130,6 +150,105 @@ export default function App() {
 
       <main className="max-w-2xl mx-auto px-6 py-12">
         <AnimatePresence mode="wait">
+          {view === 'identity' && (
+            <motion.div
+              key="identity"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-8"
+            >
+              <div className="space-y-2 text-center">
+                <h2 className="text-4xl font-serif font-bold tracking-tight">March Score</h2>
+                <p className="text-[#141414]/60">Calculate your identity points based on your contributions this month.</p>
+              </div>
+
+              <form onSubmit={handleIdentitySubmit} className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-6">
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#141414]/40 flex items-center gap-2">
+                      <Presentation size={14} />
+                      Events Hosted
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={identityInputs.hosted}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, hosted: parseInt(e.target.value) || 0 }))}
+                      className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#141414]/40 flex items-center gap-2">
+                      <Calendar size={14} />
+                      Events Attended
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={identityInputs.attended}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, attended: parseInt(e.target.value) || 0 }))}
+                      className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#141414]/40 flex items-center gap-2">
+                      <Flame size={14} />
+                      Burns
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={identityInputs.burns}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, burns: parseInt(e.target.value) || 0 }))}
+                      className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#141414]/40 flex items-center gap-2">
+                      <UserPlus size={14} />
+                      Referrals
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={identityInputs.referrals}
+                      onChange={(e) => setIdentityInputs(prev => ({ ...prev, referrals: parseInt(e.target.value) || 0 }))}
+                      className="w-full bg-[#F5F5F0] border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#5A5A40] transition-all font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-[#141414]/5 flex items-center justify-between">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest font-bold text-[#141414]/30">Estimated Points</p>
+                    <p className="text-2xl font-mono font-bold text-[#5A5A40]">
+                      {Math.floor((identityInputs.hosted * 3) + (identityInputs.attended * 1) + (identityInputs.burns * 1.25) + (identityInputs.referrals * 5))}
+                    </p>
+                  </div>
+                  <button
+                    type="submit"
+                    className="bg-[#5A5A40] text-white px-8 py-4 rounded-2xl font-bold hover:bg-[#4A4A30] transition-all flex items-center gap-2 shadow-lg shadow-[#5A5A40]/20"
+                  >
+                    Continue to Proposals
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </form>
+
+              <div className="bg-[#5A5A40]/5 p-6 rounded-2xl border border-[#5A5A40]/10 flex gap-4 items-start">
+                <Calculator className="text-[#5A5A40] shrink-0 mt-1" size={20} />
+                <div className="space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#5A5A40]">Point Calculation</p>
+                  <p className="text-sm text-[#5A5A40]/70 leading-relaxed">
+                    Hosted (3x) + Attended (1x) + Burns (1.25x) + Referrals (5x). Your total points will be used as voting credits.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {view === 'list' && (
             <motion.div
               key="list"
@@ -138,9 +257,18 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-8"
             >
-              <div className="space-y-2">
-                <h2 className="text-4xl font-serif font-bold tracking-tight">Open Proposals</h2>
-                <p className="text-[#141414]/60">Select a proposal to participate in the collective decision-making process.</p>
+              <div className="flex items-center justify-between">
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-serif font-bold tracking-tight">Open Proposals</h2>
+                  <p className="text-[#141414]/60">Select a proposal to participate in the collective decision-making process.</p>
+                </div>
+                <button 
+                  onClick={() => setView('identity')}
+                  className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] transition-colors"
+                >
+                  <ArrowLeft size={14} />
+                  Change Score
+                </button>
               </div>
 
               <div className="grid gap-4">
@@ -231,7 +359,7 @@ export default function App() {
                     <span className="text-xs uppercase tracking-widest font-semibold text-[#141414]/40">Your Balance</span>
                     <div className="flex items-center gap-2 text-2xl font-mono font-bold">
                       <Wallet className="text-[#5A5A40]" />
-                      {remainingCredits} <span className="text-sm font-normal text-[#141414]/40">/ {INITIAL_CREDITS} credits</span>
+                      {remainingCredits} <span className="text-sm font-normal text-[#141414]/40">/ {identityScore} credits</span>
                     </div>
                   </div>
                   <div className="text-right">
@@ -245,14 +373,14 @@ export default function App() {
                   <motion.div 
                     className="h-full bg-[#5A5A40]"
                     initial={{ width: 0 }}
-                    animate={{ width: `${(totalCreditsUsed / INITIAL_CREDITS) * 100}%` }}
+                    animate={{ width: `${(totalCreditsUsed / identityScore) * 100}%` }}
                   />
                 </div>
                 
                 {!isFullyAllocated && (
                   <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100">
                     <AlertCircle size={14} />
-                    You must use all 10 credits to submit your vote.
+                    You must use all {identityScore} credits to submit your vote.
                   </div>
                 )}
               </div>

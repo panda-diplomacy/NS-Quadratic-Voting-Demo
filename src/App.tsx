@@ -342,40 +342,54 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="grid gap-6 md:grid-cols-2">
+              <div className="grid gap-8 max-w-2xl mx-auto w-full">
                 {/* Personal Summary */}
-                <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 space-y-6 text-left">
-                  <h3 className="text-sm uppercase tracking-widest font-bold text-[#141414]/40">Your Allocation</h3>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-[1.5fr,1fr,1fr] gap-4 pb-2 border-b border-[#141414]/10 text-[10px] uppercase font-bold tracking-wider text-[#141414]/40">
-                      <span>Category</span>
-                      <span className="text-center">Votes Allocated</span>
+                <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 space-y-8 text-left shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm uppercase tracking-[0.2em] font-bold text-[#141414]/40">Your Allocation</h3>
+                    <div className="px-3 py-1 bg-[#5A5A40]/5 rounded-full">
+                      <p className="text-[10px] text-[#5A5A40] font-mono font-bold uppercase">Personal Ballot</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-0">
+                    <div className="grid grid-cols-[1fr_120px_120px] gap-4 pb-4 border-b border-[#141414]/10 text-[10px] uppercase font-bold tracking-widest text-[#141414]/30">
+                      <span>Proposal</span>
+                      <span className="text-center">Votes Submitted</span>
                       <span className="text-right">Credits Used</span>
                     </div>
-                    {Object.entries(allocations).map(([id, votes]) => {
-                      if (votes === 0) return null;
-                      const option = selectedProposal?.options.find(o => o.id === id);
-                      return (
-                        <div key={id} className="grid grid-cols-[1.5fr,1fr,1fr] gap-4 items-center py-2 border-b border-[#141414]/5 last:border-0">
-                          <span className="font-medium text-sm truncate">{option?.name}</span>
-                          <div className="flex justify-center">
-                            <span className="text-xs font-mono bg-[#5A5A40]/10 text-[#5A5A40] px-2 py-1 rounded">
-                              {votes}
-                            </span>
+                    <div className="divide-y divide-[#141414]/5">
+                      {Object.entries(allocations).map(([id, votes]) => {
+                        if (votes === 0) return null;
+                        const option = selectedProposal?.options.find(o => o.id === id);
+                        return (
+                          <div key={id} className="grid grid-cols-[1fr_120px_120px] gap-4 items-center py-5 transition-colors hover:bg-[#141414]/[0.02] -mx-8 px-8">
+                            <span className="font-semibold text-[#141414] leading-tight pr-4">{option?.name}</span>
+                            <div className="flex justify-center">
+                              <div className="flex flex-col items-center">
+                                <span className="text-sm font-mono text-[#5A5A40] font-bold">
+                                  {votes}
+                                </span>
+                                <span className="text-[8px] text-[#141414]/20 uppercase tracking-tighter font-bold">Units</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-end">
+                              <div className="flex flex-col items-end">
+                                <span className="text-sm font-mono font-bold text-[#141414]/80">
+                                  {(votes as number) * (votes as number)}
+                                </span>
+                                <span className="text-[8px] text-[#141414]/20 uppercase tracking-tighter font-bold">Credits</span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex justify-end">
-                            <span className="text-xs font-mono font-bold text-[#141414]/60">
-                              {(votes as number) * (votes as number)}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
                 {/* Guild Summary */}
-                <div className="bg-[#1a1a14] p-8 rounded-3xl text-white space-y-6 text-left border border-white/5 shadow-2xl relative overflow-hidden">
+                <div className="bg-[#1a1a14] p-8 rounded-3xl text-white space-y-8 text-left border border-white/5 shadow-2xl relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-[#5A5A40]/10 blur-3xl -mr-16 -mt-16 rounded-full" />
                   <div className="flex items-center justify-between relative z-10">
                     <div className="space-y-1">

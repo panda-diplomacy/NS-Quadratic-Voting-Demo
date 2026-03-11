@@ -94,7 +94,16 @@ const [globalState, setGlobalState] = useState<GlobalState>({
 });
 const [identityInputs, setIdentityInputs] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('ns_identity_inputs');
-    return saved ? JSON.parse(saved) : {
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        hosted: String(parsed.hosted || ''),
+        attended: String(parsed.attended || ''),
+        burns: String(parsed.burns || ''),
+        referrals: String(parsed.referrals || '')
+      };
+    }
+    return {
         hosted: '',
         attended: '',
         burns: '',
@@ -189,14 +198,17 @@ let totalRepublicScore = 0;
 Object.keys(TARGET_BUDGETS).forEach(id => {
 const contributions = globalState.proposals[id] || [];
 const totalVotes = contributions.reduce((sum: number, c) => sum + c.votes, 0);
-const score = Math.pow(contributions.reduce((sum: number, c) => sum + Math.sqrt(c.votes), 0), 2);
+// Quadratic Funding Score: (Sum of square roots of contributions)^2
+// Since contribution = votes^2, sqrt(contribution) = votes
+// So score = (Sum of votes)^2
+const score = Math.pow(contributions.reduce((sum: number, c) => sum + c.votes, 0), 2);
       results[id] = { score, allocation: 0, totalVotes };
       totalRepublicScore += score;
 });
 if (totalRepublicScore > 0) {
 Object.keys(results).forEach(id => {
 const res = results[id];
-        res.allocation = (res.score / totalRepublicScore) * QF_POOL;
+         res.allocation = (res.score / totalRepublicScore) * QF_POOL;
 });
 }
 return results;
@@ -229,7 +241,12 @@ const handleIdentitySubmit = (e: any) => {
     }
 
     localStorage.setItem('ns_identity_score', identityScore.toString());
-    localStorage.setItem('ns_identity_inputs', JSON.stringify({ hosted, attended, burns, referrals }));
+    localStorage.setItem('ns_identity_inputs', JSON.stringify({ 
+      hosted: String(hosted), 
+      attended: String(attended), 
+      burns: String(burns), 
+      referrals: String(referrals) 
+    }));
     setIdentityError(null);
     setView('list');
 };

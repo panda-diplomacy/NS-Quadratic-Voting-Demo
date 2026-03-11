@@ -21,6 +21,7 @@ Presentation,
 Calculator,
 Globe,
 ShieldAlert,
+ShieldCheck,
 TrendingUp,
 Target,
 Zap
@@ -80,6 +81,10 @@ interface GlobalState {
   participants: {
 [userId: string]: number;
 };
+  isClosed: boolean;
+  finalAllocations?: {
+    [optionId: string]: number;
+  };
 }
 export default function App() {
 const [view, setView] = useState<'identity' | 'list' | 'vote' | 'success' | 'qr' | 'overview'>('identity');
@@ -90,7 +95,8 @@ const [appUrl, setAppUrl] = useState('');
 const [globalState, setGlobalState] = useState<GlobalState>({
     proposals: {},
     vetoes: [],
-    participants: {}
+    participants: {},
+    isClosed: false
 });
 const [identityInputs, setIdentityInputs] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('ns_identity_inputs');
@@ -173,15 +179,17 @@ const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const socket = new WebSocket(`${protocol}//${window.location.host}`);
     socketRef.current = socket;
     socket.onmessage = (event) => {
-try {
-const payload = JSON.parse(event.data);
-if (payload.type === 'SYNC') {
+      try {
+        const payload = JSON.parse(event.data);
+        console.log('Received socket payload:', payload.type);
+        if (payload.type === 'SYNC') {
+          console.log('Syncing global state:', payload.data);
           setGlobalState(payload.data);
-}
-} catch (err) {
+        }
+      } catch (err) {
         console.error('Error parsing socket message:', err);
-}
-};
+      }
+    };
 return () => {
 if (socketRef.current) {
         socketRef.current.close();
@@ -205,12 +213,18 @@ const score = Math.pow(contributions.reduce((sum: number, c) => sum + c.votes, 0
       results[id] = { score, allocation: 0, totalVotes };
       totalRepublicScore += score;
 });
-if (totalRepublicScore > 0) {
+
+if (globalState.isClosed && globalState.finalAllocations) {
+  Object.keys(results).forEach(id => {
+    results[id].allocation = globalState.finalAllocations![id] || 0;
+  });
+} else if (totalRepublicScore > 0) {
 Object.keys(results).forEach(id => {
 const res = results[id];
          res.allocation = (res.score / totalRepublicScore) * QF_POOL;
 });
 }
+console.log('Calculated QF Results:', results);
 return results;
 }, [globalState]);
 const vetoStats = useMemo(() => {
@@ -836,6 +850,13 @@ Back to Home
 <p className="text-sm sm:text-base text-[#0a0a0a]/55">Real-time collective results from all participants.</p>
 </div>
 <div className="flex flex-wrap gap-2">
+{globalState.isClosed && (
+  <div className="bg-emerald-500 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+    <ShieldCheck size={14} />
+    <span className="font-mono font-bold text-[10px] sm:text-xs uppercase tracking-widest">Budget Finalized</span>
+  </div>
+)}
+{!globalState.isClosed && (
 <button 
                   onClick={() => {
                     const randomVotes = () => {
@@ -857,6 +878,7 @@ Back to Home
 <Zap size={14} />
 Simulate Crowd
 </button>
+)}
 <div className="bg-[#1a4d3d] text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl flex items-center gap-2">
 <Users size={14} sm:size={16} />
 <span className="font-mono font-bold text-[10px] sm:text-sm">{Object.keys(globalState.participants).length} Participants</span>
@@ -928,7 +950,7 @@ Rule Proposal Status
 {PROPOSALS[0].options.map((option) => {
 const result = qfResults[option.id] || { allocation: 0, totalVotes: 0 };
 const target = TARGET_BUDGETS[option.id];
-const progress = Math.min((result.allocation / target) * 100, 100);
+const progress = (result.allocation / target) * 100;
 const totalWeight = (Object.values(globalState.participants) as number[]).reduce((sum: number, w) => sum + w, 0);
 const voteShare = totalWeight > 0 ? (result.totalVotes / totalWeight) * 100 : 0;
 let statusColor = "bg-red-500";
@@ -965,13 +987,21 @@ return (
 <span className="text-[#0a0a0a]/40">Funding Progress</span>
 <span className="text-[#1a4d3d]">{progress.toFixed(1)}%</span>
 </div>
-<div className="h-3 bg-[#0a0a0a]/5 rounded-full overflow-hidden p-0.5 border border-[#0a0a0a]/5">
+<div className="h-3 bg-[#0a0a0a]/5 rounded-full overflow-hidden p-0.5 border border-[#0a0a0a]/5 relative">
 <motion.div 
-                              className={cn("h-full rounded-full", statusColor)}
+                              className={cn("h-full rounded-full absolute left-0.5 top-0.5", statusColor)}
                               initial={{ width: 0 }}
-                              animate={{ width: `${progress}%` }}
+                              animate={{ width: `calc(${Math.min(progress, 100)}% - 4px)` }}
                               transition={{ duration: 1, ease: "easeOut" }}
                             />
+{progress > 100 && (
+  <motion.div 
+    className="h-full rounded-full absolute left-0.5 top-0.5 bg-[#064e3b]"
+    initial={{ width: 0 }}
+    animate={{ width: `calc(${Math.min(progress - 100, 100)}% - 4px)` }}
+    transition={{ duration: 1, ease: "easeOut", delay: 0.5 }}
+  />
+)}
 </div>
 </div>
 <div className="grid grid-cols-1 gap-4 pt-2">
@@ -985,12 +1015,39 @@ return (
 })}
 </div>
 </div>
-<button
-                onClick={() => setView('list')}
-                className="w-full py-4 border border-[#0a0a0a]/10 rounded-2xl font-bold hover:bg-[#0a0a0a]/5 transition-all text-[#0a0a0a]"
->
-Return to Proposals
-</button>
+<div className="flex flex-col gap-3">
+  {!globalState.isClosed && (
+    <button
+      onClick={() => {
+        const password = prompt("Enter password to close budget:");
+        if (password === "Rome") {
+          socketRef.current?.send(JSON.stringify({ type: 'CLOSE_BUDGET', password }));
+        } else if (password !== null) {
+          alert("Incorrect password.");
+        }
+      }}
+      className="w-full py-4 bg-[#1a4d3d] text-white rounded-2xl font-bold hover:bg-[#1a4d3d]/90 transition-all shadow-lg shadow-[#1a4d3d]/20"
+    >
+      Close Budget & Re-balance
+    </button>
+  )}
+  <button
+                  onClick={() => setView('list')}
+                  className="w-full py-4 border border-[#0a0a0a]/10 rounded-2xl font-bold hover:bg-[#0a0a0a]/5 transition-all text-[#0a0a0a]"
+  >
+  Return to Proposals
+  </button>
+  <button
+    onClick={() => {
+      if (confirm("Are you sure you want to reset all votes and the budget?")) {
+        socketRef.current?.send(JSON.stringify({ type: 'RESET' }));
+      }
+    }}
+    className="w-full py-2 text-[10px] uppercase font-bold tracking-widest text-red-500/50 hover:text-red-500 transition-all"
+  >
+    Reset Simulation
+  </button>
+</div>
 </motion.div>
 )}
 {view === 'qr' && (

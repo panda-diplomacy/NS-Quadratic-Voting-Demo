@@ -202,29 +202,27 @@ return Object.values(allocations).reduce((sum: number, votes: number) => sum + (
 const remainingCredits = identityScore - totalCreditsUsed;
 const qfResults = useMemo(() => {
 const results: Record<string, { score: number, allocation: number, totalVotes: number }> = {};
-let totalRepublicScore = 0;
+let totalVotesAcrossAll = 0;
 Object.keys(TARGET_BUDGETS).forEach(id => {
 const contributions = globalState.proposals[id] || [];
 const totalVotes = contributions.reduce((sum: number, c) => sum + c.votes, 0);
-// Quadratic Funding Score: (Sum of square roots of contributions)^2
-// Since contribution = votes^2, sqrt(contribution) = votes
-// So score = (Sum of votes)^2
-const score = Math.pow(contributions.reduce((sum: number, c) => sum + c.votes, 0), 2);
-      results[id] = { score, allocation: 0, totalVotes };
-      totalRepublicScore += score;
+// Using total votes as the score for linear allocation of the $25,000 pool
+results[id] = { score: totalVotes, allocation: 0, totalVotes };
+totalVotesAcrossAll += totalVotes;
 });
 
 if (globalState.isClosed && globalState.finalAllocations) {
   Object.keys(results).forEach(id => {
     results[id].allocation = globalState.finalAllocations![id] || 0;
   });
-} else if (totalRepublicScore > 0) {
+} else if (totalVotesAcrossAll > 0) {
 Object.keys(results).forEach(id => {
 const res = results[id];
-         res.allocation = (res.score / totalRepublicScore) * QF_POOL;
+         // Allocation = (Votes for project / Total votes across all) * Pool
+         res.allocation = (res.totalVotes / totalVotesAcrossAll) * QF_POOL;
 });
 }
-console.log('Calculated QF Results:', results);
+console.log('Calculated Results:', results);
 return results;
 }, [globalState]);
 const vetoStats = useMemo(() => {
@@ -847,7 +845,7 @@ Back to Home
 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 <div className="space-y-1 sm:space-y-2">
 <h2 className="text-3xl sm:text-4xl font-serif font-bold tracking-tight text-[#0a0a0a]">Global Overview</h2>
-<p className="text-sm sm:text-base text-[#0a0a0a]/55">Real-time collective results from all participants.</p>
+<p className="text-sm sm:text-base text-[#0a0a0a]/55">Real-time collective results from all participants. Funding is allocated linearly based on vote share, then re-balanced via waterfall when closed.</p>
 </div>
 <div className="flex flex-wrap gap-2">
 {globalState.isClosed && (
@@ -951,8 +949,8 @@ Rule Proposal Status
 const result = qfResults[option.id] || { allocation: 0, totalVotes: 0 };
 const target = TARGET_BUDGETS[option.id];
 const progress = (result.allocation / target) * 100;
-const totalWeight = (Object.values(globalState.participants) as number[]).reduce((sum: number, w) => sum + w, 0);
-const voteShare = totalWeight > 0 ? (result.totalVotes / totalWeight) * 100 : 0;
+const totalVotesAcrossAll = Object.values(qfResults).reduce((sum: number, r: any) => sum + (r.totalVotes || 0), 0) as number;
+const voteShare = totalVotesAcrossAll > 0 ? (result.totalVotes / totalVotesAcrossAll) * 100 : 0;
 let statusColor = "bg-red-500";
 let statusGlow = "";
 if (result.allocation >= target) {

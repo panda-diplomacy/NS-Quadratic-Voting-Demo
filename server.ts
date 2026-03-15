@@ -45,18 +45,19 @@ const TARGET_BUDGETS: Record<string, number> = {
 
 function calculateAllocations(state: GlobalState) {
   const results: Record<string, { score: number, allocation: number }> = {};
-  let totalScore = 0;
+  let totalVotesAcrossAll = 0;
 
   INITIAL_OPTIONS.forEach(id => {
     const contributions = state.proposals[id] || [];
-    const score = Math.pow(contributions.reduce((sum, c) => sum + c.votes, 0), 2);
-    results[id] = { score, allocation: 0 };
-    totalScore += score;
+    const totalVotes = contributions.reduce((sum, c) => sum + c.votes, 0);
+    results[id] = { score: totalVotes, allocation: 0 };
+    totalVotesAcrossAll += totalVotes;
   });
 
-  if (totalScore > 0) {
+  if (totalVotesAcrossAll > 0) {
     INITIAL_OPTIONS.forEach(id => {
-      results[id].allocation = (results[id].score / totalScore) * QF_POOL;
+      // Linear allocation: (Votes for project / Total votes across all) * Pool
+      results[id].allocation = (results[id].score / totalVotesAcrossAll) * QF_POOL;
     });
   }
 
@@ -64,39 +65,26 @@ function calculateAllocations(state: GlobalState) {
 }
 
 function rebalanceBudget(state: GlobalState) {
-  const initialResults = calculateAllocations(state);
-  const allocations: Record<string, number> = {};
-  let excess = 0;
-
-  // 1. Cap at target and collect excess
+  const votesPerProject: Record<string, number> = {};
   INITIAL_OPTIONS.forEach(id => {
-    const target = TARGET_BUDGETS[id];
-    const initial = initialResults[id].allocation;
-    if (initial > target) {
-      allocations[id] = target;
-      excess += (initial - target);
-    } else {
-      allocations[id] = initial;
-    }
+    votesPerProject[id] = (state.proposals[id] || []).reduce((sum, c) => sum + c.votes, 0);
   });
 
-  // 2. Distribute excess to underfunded projects by score descending
-  while (excess > 0.01) {
-    const underfunded = INITIAL_OPTIONS
-      .filter(id => allocations[id] < TARGET_BUDGETS[id])
-      .sort((a, b) => initialResults[b].score - initialResults[a].score);
-
-    if (underfunded.length === 0) break;
-
-    const topId = underfunded[0];
-    const needed = TARGET_BUDGETS[topId] - allocations[topId];
-    const give = Math.min(excess, needed);
-    
-    allocations[topId] += give;
-    excess -= give;
-    
-    // If we can't give any more to anyone, stop
-    if (give === 0) break;
+  // Sort projects by total votes descending
+  const sortedIds = [...INITIAL_OPTIONS].sort((a, b) => votesPerProject[b] - votesPerProject[a]);
+  
+  const allocations: Record<string, number> = {};
+  INITIAL_OPTIONS.forEach(id => allocations[id] = 0);
+  
+  let remainingPool = QF_POOL;
+  
+  // Waterfall allocation: Fill most favored projects first up to their target budget
+  for (const id of sortedIds) {
+    const target = TARGET_BUDGETS[id];
+    const give = Math.min(remainingPool, target);
+    allocations[id] = give;
+    remainingPool -= give;
+    if (remainingPool <= 0) break;
   }
 
   return allocations;

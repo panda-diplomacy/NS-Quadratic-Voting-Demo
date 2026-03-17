@@ -171,13 +171,26 @@ return newId;
       setHasLoadedInitialVotes(true);
     }
   }, [globalState, userId, hasLoadedInitialVotes]);
-const socketRef = useRef<WebSocket | null>(null);
-  useEffect(() => {
-    setAppUrl(window.location.href);
-// Setup WebSocket
-const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const socket = new WebSocket(`${protocol}//${window.location.host}`);
+  const [socketStatus, setSocketStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const connectWebSocket = () => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${protocol}//${window.location.host}`);
     socketRef.current = socket;
+
+    socket.onopen = () => {
+      console.log('WebSocket connected');
+      setSocketStatus('open');
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    };
+
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
@@ -190,12 +203,31 @@ const socket = new WebSocket(`${protocol}//${window.location.host}`);
         console.error('Error parsing socket message:', err);
       }
     };
-return () => {
-if (socketRef.current) {
+
+    socket.onclose = () => {
+      console.log('WebSocket closed, attempting reconnect...');
+      setSocketStatus('closed');
+      reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      socket.close();
+    };
+  };
+
+  useEffect(() => {
+    setAppUrl(window.location.href);
+    connectWebSocket();
+    return () => {
+      if (socketRef.current) {
         socketRef.current.close();
-}
-};
-}, []);
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, []);
 const totalCreditsUsed = useMemo(() => {
 return Object.values(allocations).reduce((sum: number, votes: number) => sum + (votes * votes), 0);
 }, [allocations]);
@@ -282,18 +314,22 @@ if (remainingCredits - costDiff >= 0) {
     setView('vote');
   };
 const handleSubmit = () => {
-if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      console.log('Submitting votes:', { userId, allocations, identityScore, vetoed });
       socketRef.current.send(JSON.stringify({
-type: 'VOTE',
+        type: 'VOTE',
         data: { 
           userId,
           allocations, 
           weight: identityScore,
           vetoed
-}
-}));
-}
-    setView('success');
+        }
+      }));
+      setView('success');
+    } else {
+      console.error('Cannot submit: WebSocket is not open. Status:', socketStatus);
+      alert('Connection lost. Please wait a moment and try again.');
+    }
 };
 return (
 <div className="min-h-screen bg-[#faf8f5] text-[#0a0a0a] font-sans selection:bg-[#1a4d3d] selection:text-white overflow-x-hidden" style={{backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(26, 77, 61, 0.03) 0%, transparent 50%)'}}>
@@ -306,12 +342,25 @@ return (
 <h1 className="font-serif font-bold text-lg sm:text-xl tracking-tight text-[#0a0a0a] line-clamp-1">The Quadratic Simulation</h1>
 </div>
 <div className="flex items-center gap-2 sm:gap-4">
+  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1a4d3d]/5 border border-[#1a4d3d]/10">
+    <Users size={12} className="text-[#1a4d3d]" />
+    <span className="text-[10px] font-mono font-bold text-[#1a4d3d]">{Object.keys(globalState.participants).length}</span>
+  </div>
+  <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#0a0a0a]/5 border border-[#0a0a0a]/5">
+    <div className={cn(
+      "w-1.5 h-1.5 rounded-full",
+      socketStatus === 'open' ? "bg-emerald-500" : socketStatus === 'connecting' ? "bg-yellow-500 animate-pulse" : "bg-red-500"
+    )} />
+    <span className="text-[8px] font-bold uppercase tracking-widest text-[#0a0a0a]/40">
+      {socketStatus === 'open' ? "Live" : socketStatus === 'connecting' ? "Connecting" : "Offline"}
+    </span>
+  </div>
 <button 
             onClick={() => setView('overview')}
             className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-[#0a0a0a]/5 hover:bg-[#0a0a0a]/10 transition-all text-[10px] sm:text-xs font-bold uppercase tracking-widest text-[#1a4d3d]"
 >
 <Globe size={12} />
-<span className="hidden xs:inline">Overview</span>
+<span className="hidden sm:inline">Overview</span>
 </button>
 <button 
             onClick={() => setView('qr')}
@@ -885,7 +934,13 @@ Simulate Crowd
 </div>
 {/* Stats Grid */}
 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-<div className="bg-white p-6 rounded-3xl border border-[#0a0a0a]/10 shadow-sm space-y-2">
+<div className="bg-white p-6 rounded-3xl border border-[#0a0a0a]/10 shadow-sm space-y-2 relative overflow-hidden">
+  <div className="absolute top-4 right-4">
+    <div className="flex items-center gap-1.5">
+      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+      <span className="text-[8px] font-bold uppercase tracking-widest text-emerald-500/60">Live</span>
+    </div>
+  </div>
 <p className="text-[10px] uppercase font-bold tracking-widest text-[#0a0a0a]/30">Participants</p>
 <div className="flex items-center gap-2">
 <Users size={16} className="text-[#1a4d3d]" />
@@ -944,6 +999,17 @@ Rule Proposal Status
 {/* Leaderboard */}
 <div className="space-y-4">
 <h3 className="text-xs font-bold uppercase tracking-widest text-[#0a0a0a]/40">Funding Leaderboard</h3>
+{Object.values(globalState.proposals).flat().length === 0 ? (
+  <div className="bg-white p-12 rounded-3xl border border-dashed border-[#0a0a0a]/20 text-center space-y-3">
+    <div className="w-12 h-12 bg-[#0a0a0a]/5 rounded-full flex items-center justify-center mx-auto">
+      <Vote size={20} className="text-[#0a0a0a]/20" />
+    </div>
+    <div className="space-y-1">
+      <p className="text-sm font-bold text-[#0a0a0a]/60">No votes cast yet</p>
+      <p className="text-xs text-[#0a0a0a]/40">Participate in a proposal to see the collective results populate here.</p>
+    </div>
+  </div>
+) : (
 <div className="grid gap-4">
 {PROPOSALS[0].options.map((option) => {
 const result = qfResults[option.id] || { allocation: 0, totalVotes: 0 };
@@ -1012,22 +1078,39 @@ return (
 );
 })}
 </div>
+)}
 </div>
 <div className="flex flex-col gap-3">
   {!globalState.isClosed && (
-    <button
-      onClick={() => {
-        const password = prompt("Enter password to close budget:");
-        if (password === "Rome") {
-          socketRef.current?.send(JSON.stringify({ type: 'CLOSE_BUDGET', password }));
-        } else if (password !== null) {
-          alert("Incorrect password.");
-        }
-      }}
-      className="w-full py-4 bg-[#1a4d3d] text-white rounded-2xl font-bold hover:bg-[#1a4d3d]/90 transition-all shadow-lg shadow-[#1a4d3d]/20"
-    >
-      Close Budget & Re-balance
-    </button>
+    <div className="space-y-3">
+      <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-2xl flex items-start gap-3">
+        <Info size={16} className="text-yellow-600 shrink-0 mt-0.5" />
+        <p className="text-xs text-yellow-700 leading-relaxed">
+          Closing the budget will trigger the <strong>Waterfall Re-balancing</strong>. Funds will be distributed to projects in order of popularity until their target budgets are met.
+        </p>
+      </div>
+      <button
+        onClick={() => {
+          const password = prompt("Enter password to close budget (Hint: Rome):");
+          if (password === "Rome") {
+            console.log("Sending CLOSE_BUDGET message...");
+            socketRef.current?.send(JSON.stringify({ type: 'CLOSE_BUDGET', password }));
+          } else if (password !== null) {
+            alert("Incorrect password.");
+          }
+        }}
+        className="w-full py-4 bg-[#1a4d3d] text-white rounded-2xl font-bold hover:bg-[#1a4d3d]/90 transition-all shadow-lg shadow-[#1a4d3d]/20 flex items-center justify-center gap-2"
+      >
+        <ShieldCheck size={20} />
+        Close Budget & Re-balance
+      </button>
+    </div>
+  )}
+  {globalState.isClosed && (
+    <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-3 text-emerald-700">
+      <CheckCircle2 size={18} className="shrink-0" />
+      <p className="text-sm font-medium">Budget is closed. Waterfall re-balancing applied.</p>
+    </div>
   )}
   <button
                   onClick={() => setView('list')}

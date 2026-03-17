@@ -65,18 +65,23 @@ function calculateAllocations(state: GlobalState) {
 }
 
 function rebalanceBudget(state: GlobalState) {
+  console.log("Starting rebalanceBudget waterfall...");
   const votesPerProject: Record<string, number> = {};
   INITIAL_OPTIONS.forEach(id => {
-    votesPerProject[id] = (state.proposals[id] || []).reduce((sum, c) => sum + c.votes, 0);
+    const votes = (state.proposals[id] || []).reduce((sum, c) => sum + c.votes, 0);
+    votesPerProject[id] = votes;
+    console.log(`Project ${id}: ${votes} total votes`);
   });
 
   // Sort projects by total votes descending
   const sortedIds = [...INITIAL_OPTIONS].sort((a, b) => votesPerProject[b] - votesPerProject[a]);
+  console.log("Sorted projects for waterfall:", sortedIds);
   
   const allocations: Record<string, number> = {};
   INITIAL_OPTIONS.forEach(id => allocations[id] = 0);
   
   let remainingPool = QF_POOL;
+  console.log(`Initial pool: $${remainingPool}`);
   
   // Waterfall allocation: Fill most favored projects first up to their target budget
   for (const id of sortedIds) {
@@ -84,9 +89,11 @@ function rebalanceBudget(state: GlobalState) {
     const give = Math.min(remainingPool, target);
     allocations[id] = give;
     remainingPool -= give;
+    console.log(`Allocated $${give} to ${id} (Target: $${target}). Remaining pool: $${remainingPool}`);
     if (remainingPool <= 0) break;
   }
 
+  console.log("Final waterfall allocations:", allocations);
   return allocations;
 }
 
@@ -147,22 +154,36 @@ async function startServer() {
         console.log("Received message type:", payload.type);
         
         if (payload.type === "VOTE") {
-          if (globalState.isClosed) return;
+          if (globalState.isClosed) {
+            console.log("VOTE rejected: Budget is closed.");
+            return;
+          }
           const { userId, allocations, weight, vetoed } = payload.data;
-          console.log(`Processing vote from ${userId} with weight ${weight}`);
+          console.log(`Processing vote from ${userId} with weight ${weight}. Allocations:`, allocations);
           
+          if (!userId) {
+            console.error("VOTE rejected: Missing userId.");
+            return;
+          }
+
           // Update participant weight
           globalState.participants[userId] = weight;
 
           // Clear existing contributions for this user
           Object.keys(globalState.proposals).forEach(id => {
             if (globalState.proposals[id]) {
+              const beforeCount = globalState.proposals[id].length;
               globalState.proposals[id] = globalState.proposals[id].filter(c => c.userId !== userId);
+              const afterCount = globalState.proposals[id].length;
+              if (beforeCount !== afterCount) {
+                console.log(`Cleared previous votes for ${userId} in ${id}`);
+              }
             }
           });
 
           // Update allocations
-          Object.entries(allocations).forEach(([optionId, votes]) => {
+          let addedCount = 0;
+          Object.entries(allocations || {}).forEach(([optionId, votes]) => {
             const voteCount = Number(votes);
             if (voteCount > 0) {
               // Ensure the option exists in proposals
@@ -170,8 +191,12 @@ async function startServer() {
                 globalState.proposals[optionId] = [];
               }
               globalState.proposals[optionId].push({ userId, votes: voteCount, weight });
+              addedCount++;
+              console.log(`Added ${voteCount} votes for ${userId} to ${optionId}`);
             }
           });
+
+          console.log(`Total options voted for by ${userId}: ${addedCount}`);
 
           // Update veto
           globalState.vetoes = globalState.vetoes.filter(v => v.userId !== userId);
